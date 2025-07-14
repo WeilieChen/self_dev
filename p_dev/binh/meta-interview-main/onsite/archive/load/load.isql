@@ -1,0 +1,131 @@
+-- %% MD | unnamed
+messenger_events (
+    date
+    time
+    user_id
+    platform (ios, android)
+    event (app_open, msg_send)
+)
+
+dim_messenger_user (
+    date
+    user_id
+    num_of_msg_sends_in_1d
+    num_of_msg_sends_in_1d_android
+    num_of_msg_sends_in_1d_ios
+    num_of_app_opens_lifetime
+    first_action_date
+    is_active_today
+)
+
+Produce dim_messenger_user using messenger_events
+-- %% SQL_RAW | unnamed
+-- Create dim_messenger_user from messenger_events
+
+create or replace table messenger_events as
+from 'onsite/load/messenger_events.csv';
+
+with base as (
+    select
+        date,
+        user_id,
+        sum(case when event='msg_send' then 1 else 0 end) as num_of_msg_sends_in_1d,
+        sum(case when event='msg_send' and platform='android' then 1 else 0 end) as num_of_msg_sends_in_1d_android,
+        sum(case when event='msg_send' and platform='ios' then 1 else 0 end) as num_of_msg_sends_in_1d_ios,
+        min(date) as first_action_date
+    from messenger_events
+    group by date, user_id
+)
+, app_open as (
+    select user_id, sum(case when event='app_open' then 1 else 0 end) as num_of_app_opens_lifetime
+    from messenger_events
+    group by user_id
+)
+select 
+    strftime(base.date, '%Y-%m-%d') as date,
+    base.user_id,
+    num_of_msg_sends_in_1d,
+    num_of_msg_sends_in_1d_android,
+    num_of_msg_sends_in_1d_ios,
+    num_of_app_opens_lifetime,
+    strftime(first_action_date, '%Y-%m-%d') as first_action_date,
+    case when base.date = '2020-01-01' then 'Y' else 'N' end as is_active_today
+from base
+join app_open
+    on app_open.user_id = base.user_id
+-- %% SQL_RAW | unnamed
+-- A new days worth of data has comes from messenger_events, write a sql query to load that new data into dim_messenger_user.
+-- Will this be insert only or insert and update? Assuming insert only
+
+create or replace table dim_messenger_user as
+from 'onsite/load/dim_messenger_user.csv';
+
+create or replace table messenger_events as
+from 'onsite/load/messenger_events_2.csv';
+
+
+with messenger_events_daily as (
+    select
+        date,
+        user_id,
+        sum(case when event='msg_send' then 1 else 0 end) as num_of_msg_sends_in_1d,
+        sum(case when event='msg_send' and platform='android' then 1 else 0 end) as num_of_msg_sends_in_1d_android,
+        sum(case when event='msg_send' and platform='ios' then 1 else 0 end) as num_of_msg_sends_in_1d_ios,
+        sum(case when event='app_open' then 1 else 0 end) as num_of_app_opens_1d,
+        min(date) as first_action_date,
+        'Y' as is_active_today
+    from messenger_events
+    where date = '2020-01-02'
+    group by date, user_id
+)
+select 
+    strftime(coalesce(user.date + interval '1 day', events.date), '%Y-%m-%d') as date,
+    coalesce(user.user_id, events.user_id) as user_id,
+    coalesce(events.num_of_msg_sends_in_1d, 0) as num_of_msg_sends_in_1d,
+    coalesce(events.num_of_msg_sends_in_1d_android, 0) as num_of_msg_sends_in_1d_android,
+    coalesce(events.num_of_msg_sends_in_1d_ios, 0) as num_of_msg_sends_in_1d_ios,
+    coalesce(num_of_app_opens_lifetime, 0) + coalesce(num_of_app_opens_1d, 0) as num_of_app_opens_lifetime,
+    strftime(coalesce(user.first_action_date, events.first_action_date), '%Y-%m-%d') as first_action_date,
+    coalesce(events.is_active_today, 'N') as is_active_today
+from dim_messenger_user as user
+full outer join messenger_events_daily as events
+    on events.date = user.date + interval '1 day'
+    and events.user_id = user.user_id
+order by 1, 2
+-- %% SQL_RAW | unnamed
+create or replace table user_activity as
+from 'onsite/load/user_activity.csv';
+
+select 
+    strftime(date, '%Y-%m-%d') as date,
+    sum(case when date = last_active_date and last_active_date - previous_active_date = 1 then 1 else 0 end) as active_users,
+    sum(case when date = first_active_date then 1 else 0 end) as new_users,
+    sum(case when date = last_active_date and last_active_date - previous_active_date > 1 then 1 else 0 end) as returning_users,
+    sum(case when date - last_active_date > 30 then 1 else 0 end) as churned_users
+from user_activity
+group by date
+-- %% SQL_RAW | unnamed
+create or replace table user_activity as
+from 'onsite/load/user_activity.csv';
+
+create or replace table user_event as
+from 'onsite/load/user_event.csv';
+
+select
+    strftime(coalesce(user_activity.date + interval '1 day', user_event.date), '%Y-%m-%d') as date,
+    coalesce(user_activity.user_id, user_event.user_id) as user_id,
+    strftime(coalesce(user_activity.first_active_date, user_event.date), '%Y-%m-%d')  as first_active_date,
+    strftime(coalesce(user_event.date, user_activity.last_active_date), '%Y-%m-%d')  as last_active_date,
+    -- strftime(user_activity.last_active_date, '%Y-%m-%d') as previous_active_date,
+    strftime(case when user_event.user_id is not null then user_activity.last_active_date else user_activity.previous_active_date end, '%Y-%m-%d') as previous_active_date
+from user_activity
+full outer join user_event
+    on user_event.user_id = user_activity.user_id
+    and user_event.date - interval '1 day' = user_activity.date
+order by 1,2
+-- %% SQL_RAW | unnamed
+select strftime(user_activity.date, '%Y-%m-%d')  as activity_user_id, strftime(user_event.date, '%Y-%m-%d') as user_event_user_id
+from user_activity
+full outer join user_event
+    on user_event.user_id = user_activity.user_id
+    and user_event.date = user_activity.date + interval '1 day'

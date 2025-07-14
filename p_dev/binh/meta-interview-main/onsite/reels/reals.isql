@@ -1,0 +1,137 @@
+-- %% MD | unnamed
+Facebook newsfeed has recently implemented a feature to allow instagram reels to appear.
+How would you determine if this feature is successfully engaging with users?
+
+Users post reels.
+Users like, share, comment, check profile
+Instgram is about connecting people.
+Success of reels = higher engagement, growth and monetization
+Compeitors in the same space, short form video. Instagram wants to capture that market share.
+
+Main metric
+engagement = like, share, comment / views
+
+avg time on explore page = total time explore page / active users
+
+Sub metric
+average watch time = total watch time / total views
+shares = total shares / per reels
+
+ctr = num clicks on explore page / views explore page
+
+Guardrail metric
+skip rate = number of skips before finish / total views
+negative impressions = hide, not interested, report / views
+-- %% MD | unnamed
+how does your data model handle multiple layers of sharing, and efficiently
+count how many shares each post has and who the original poster and posted time is?
+
+one row, date, reel_id, measures
+fact_reels (
+    reel_id pk
+    date_id pk
+    user_id
+    post_id
+    posted_on_date_id
+    
+    likes
+    comments
+    shares
+    saves
+    watch_time
+    completeion_rate
+)
+
+fact_share (
+    share_id
+    reel_id
+    original_poster_user_id
+    user_id
+    shared_to_user_id
+    share_time_id
+    shared_method
+)
+
+dim_date (
+    date_id
+    date
+    day
+    month
+    year
+)
+
+dim_user (
+    user_id
+    username
+    profile_url
+    first_name
+    last_name
+)
+
+dim_reel (
+    reel_id
+    video_type
+    length
+    name
+    description
+)
+-- %% MD | unnamed
+fact_activity
+| post_id | date       | activity_type |
+|---------|------------|----------------|
+| 1       | 2020-01-01 | post           |
+| 1       | 2020-01-01 | like           |
+| 2       | 2020-01-01 | post           |
+| 2       | 2020-01-02 | like           |
+
+
+fact_share
+| share_id | user_id | shared_user_id | reel_id |
+|----------|---------|----------------|---------|
+| 1        | 1       | 2              | 1       |
+| 2        | 2       | 3              | 1       |
+| 3        | 3       | 4              | 1       |
+| 4        | 1       | 4              | 2       |
+| 5        | 4       | 2              | 2       |
+| 6        | 5       | 1              | 3       |
+-- %% SQL_RAW | unnamed
+-- find content_id with watch time greater than 10 min 
+-- %% SQL_RAW | unnamed
+-- identify posts with zero likes/reacts on the day they were posted
+
+create or replace table fact_activity as
+from 'onsite/reels/fact_activity.csv';
+
+select post_id
+from (
+  select
+        post_id,
+        date,
+        max(case when activity_type = 'post' then 'Y' else 'N' end) as posted_today,
+        sum(case when activity_type = 'like' then 1 else 0 end) as likes_count
+    from fact_activity
+    group by post_id, date   
+)
+where posted_today = 'Y' and likes_count = 0
+-- %% SQL_RAW | unnamed
+-- of those who recieved reels, how many reshared? on per reel level
+
+create or replace table fact_share as
+from 'onsite/reels/fact_share.csv';
+
+select
+    a.reel_id,
+    sum(case when b.user_id is not null then 1 else 0 end) as reshared_count
+from fact_share a
+left join fact_share b
+    on b.user_id = a.shared_user_id
+    and b.reel_id = a.reel_id
+group by a.reel_id
+-- %% MD | unnamed
+events = [{post_id, engagement, view_time, test_flag}]
+Implement a queue structure.
+You have a buffer size of lets say 3.
+Once the queue is full, process all the events current in the queue by printing total view_time, total_engagement and all post_id.
+Dequeue only the latest element.
+Add new event to the queue.
+Ignore all events with the test_flag = true

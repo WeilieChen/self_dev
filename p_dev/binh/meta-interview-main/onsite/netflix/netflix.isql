@@ -1,0 +1,265 @@
+-- %% TEXT | unnamed
+About
+Netflix cares about enteraining users.
+Engage with product by watching.
+Retain users to keep subscription.
+
+You are DE at Netflix. What questions would stakeholders as you if they wanted to know if users are engaging with our product?
+User
+How many active users, daily, monthly, yearly?
+How much users spend on the platform?
+How many sessions per day?
+
+Content
+What most watched tv shows, movies, genres?
+Most completed series?
+What percentage of users engage with recommeendations?
+
+Retention and Churn
+User rentention over time?
+How many users stop using Netflix after first month?
+
+What metrics would you track?
+
+Main metrics
+daily active user = count of unique users played at least one video
+average viewing time = total viewing time / total active users in a day
+
+Sub-metrics
+completion rate = num users completed video / users who started video
+content engagement rate = num users click on recommeendation / active users
+session per user = total num sessions / total active users  over period of time
+
+Guard rail metrics
+churn users = num of user cancelled / num of subscribers (month)
+percent of likes - likes / watch
+-- %% TEXT | unnamed
+fact_event (
+    event_id pk
+
+    user_id fk
+    content_id fk
+    device_id fk
+    time_id fk
+    date_id
+
+    event_type (start, end, like)
+)
+
+one row per completd session
+fact_session (
+    session_id pk
+    start_ts_id fk
+    end_ts_id fk
+    user_id fk 
+    device_id fk
+
+    duration
+    content_watch
+    content_finished
+    videos_started
+    videos_completed
+)
+
+session_content_bridge (
+    session_id
+    content_id
+)
+
+one row per date, user
+fact_user_engagement (
+    date_id pk m:1
+    user_id pk m:1
+
+    date_id
+    time_id
+
+    session_count
+    watch_time
+    videos_started
+    videos_completed
+    recommended_clicks
+)
+
+fact_user_watch (
+    watch_id pk
+
+    user_id
+    content_id
+    device_id
+    date_id
+    start_time_id
+    end_time_id
+
+    duration
+    completd_flag
+    perc_of_watched
+)
+
+dim_user (
+    user_id pk
+    name
+    age
+    gender
+    country
+    ethnicity
+    signup_date
+)
+
+dim_content (
+    content_id pk
+    title
+    genre
+    content_type
+    duration
+    release_date
+)
+
+dim_device (
+    device_id pk
+    device_type
+    platform
+)
+
+dim_date (
+    date_id pk
+    day
+    month
+    year
+    date
+)
+
+dim_time (
+    time_id
+    timestamp
+)
+-- %% MD | unnamed
+How would you segment your metric? For example by geographic, time, demographics?
+-- %% PYTHON | unnamed
+"""
+ratings = [
+    (movie_1: 3.5)
+    (movie_2: 4),
+    (movie_3: 4),
+    (movie_1: 4),
+    (movie_3: 2),
+]
+categories = {movie_1: "horror, movie_2: comedy, movie_3: action}
+
+return 3 highest movies ordered by avg rating in each movie category horror, comedy, action
+"""
+
+"""
+What if a movie has a category but no ratings?
+What if a movie has ratings but no category?
+What if multiple moves make into top 3?
+"""
+
+"""
+movies = {movie_name: [ratings]}
+movies = {movie_name: avg_rating}
+categorized_movies = {category: [(avg_rating, movie)]}
+sorted
+"""
+
+def func(ratings, categories):
+    movie_ratings = {}
+    for rating in ratings:
+        movie_ratings[rating[0]] = movie_ratings.get(rating[0], []) + [rating[1]]
+
+    movie_avg_ratings = {
+        movie: sum(ratings) / len(ratings)
+        for movie, ratings in movie_ratings.items()
+    }
+
+    categorized_movies = {}
+    for movie, category in categories.items():
+        # if movie has a category but no ratings
+        if movie in movie_avg_ratings:
+            avg_rating = movie_avg_ratings[movie]
+            categorized_movies[category] = categorized_movies.get(category, []) + [(avg_rating, movie)]
+
+    # if movie has rating but no category
+    for movie, avg_rating in movie_avg_ratings.items():
+        if movie not in categories:
+            categorized_movies["Unknown"] = categorized_movies.get("Unknown", []) + [(avg_rating, movie)]
+    
+    top_3_movie = {}
+    for category, movies in categorized_movies.items():
+        top_3_movie[category] = [
+            m[1]
+            for m in sorted(movies, reverse=True)[:3]
+        ]
+
+    return top_3_movie
+
+
+ratings = [
+    ("movie_1", 3),
+    ("movie_2", 4),
+    ("movie_3", 5),
+    ("movie_4", 5),
+    ("movie_5", 3),
+    ("movie_6", 3),
+    ("movie_1", 1),
+    ("movie_7", 1),
+]
+categories = {
+    "movie_1": "action",
+    "movie_2": "action",
+    "movie_3": "action",
+    "movie_4": "action",
+    "movie_5": "horor",
+    "movie_6": "comedy",
+}
+func(ratings, categories)
+-- %% SQL_RAW | unnamed
+-- result should be date, content_id, watch_time_1_day, and watch_time_lifetime
+-- note that watch_time_lifetime should be up untill that date
+
+create or replace table fact_watch as
+from 'onsite/netflix/fact_watch.csv';
+
+
+with base as (
+    select date, content_id, sum(end_ts - start_ts) as watch_time_1_day
+    from fact_watch
+    group by date, content_id 
+)
+select date, content_id, watch_time_1_day, watch_time_1_day + coalesce(lag(watch_time_1_day) over (partition by content_id order by date), 0) as watch_time_lifetime
+from base
+order by 1,2
+
+-- %% SQL_RAW | unnamed
+-- the previous query result is now a daily aggregate table called watch_time
+-- a new day worth of data has arrived to fact_watch
+-- process that new data and insert it into watch_time
+-- use only the new day's data, meaning you can not use evrey day's data from fact_watch table
+
+create or replace table watch_time as
+from 'onsite/netflix/watch_time.csv';
+
+create or replace table fact_watch_new as
+from 'onsite/netflix/fact_watch_new.csv';
+
+with base as (
+    select date, content_id, sum(end_ts - start_ts) as watch_time_1_day
+    from fact_watch_new
+    where date = '2020-01-03'
+    group by date, content_id 
+)
+, final as (
+    select
+        coalesce(watch_time.date + interval'1 day', base.date)::date as date,
+        coalesce(watch_time.content_id, base.content_id) as content_id,
+        coalesce(base.watch_time_1_day, 0) as watch_time_1_day,
+        coalesce(watch_time.watch_time_lifetime, 0) + coalesce(base.watch_time_1_day, 0) as watch_time_lifetime
+    from watch_time
+    full outer join base
+        on base.date = watch_time.date + interval'1 day'
+        and base.content_id = watch_time.content_id
+    order by 1,2    
+)
+select *
+from final
+where date = '2020-01-03'

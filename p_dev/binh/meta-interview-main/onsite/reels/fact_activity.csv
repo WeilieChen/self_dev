@@ -1,0 +1,5 @@
+post_id,date,activity_type
+1,2020-01-01,post
+1,2020-01-01,like
+2,2020-01-01,post
+2,2020-01-02,like

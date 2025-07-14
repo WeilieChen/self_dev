@@ -1,0 +1,239 @@
+-- %% MD | unnamed
+How would you asess if a new carpool feature at uber is successfull?
+
+Already implemented or beta testing?
+Users log in an app to request rides.
+Choosing rides, they can choose deluxe or simple, large types of cars.
+They get picked up and droped at desired location.
+
+Uber mission to reimagine the way people transport.
+For passengers: cost savings, reduce wait times
+For drivers: increased earnings, efficiency
+For business: more users will use the app, increased earnings
+
+Main metric
+numberof seats filled = num of seats filled / available seats
+
+Sub metric
+cost savings -  avg solo ride - avg carpool ride / avg solo ride
+percent of rides that are carpool = carpool rided / total rides
+rider retention = number carpool users who used at least twice / total carpool users
+
+completed carpool trips
+carpool request rate user = users who iniate request / active users
+
+Guard rail metric
+ratings of carpool drivers = total ratings / 5 that are carpools
+driver churn = num of drivers who left carpool / total carpoool drivers
+cancelled carpool trips = num cancelled trips / trips created
+-- %% TEXT | unnamed
+fact_ride (
+    ride_id pk
+    driver_id fk
+    vehicle_id fk
+    start_location_id fk
+    end_location_id fk
+    start_time_id fk
+    end_time_id fk
+    distance
+    duration
+    fare_amount
+    riders_count
+    is_carpool
+)
+
+bridge_ride_rider (
+    ride_id fk
+    rider_id fk
+    fare_adjustment
+)
+
+dim_driver (
+    driver_id
+    name
+    rating
+    location
+    gender
+    age
+    ethnicity
+    seats
+)
+
+dim_rider (
+    rider_id
+    name
+    location
+    gender
+    age
+    ethnicity
+)
+
+dim_vehicle (
+    vehicile_id
+    make
+    model
+    year
+    color
+)
+
+dim_location (
+    city
+    start_time_id
+    country
+    zip_code
+    location_type
+)
+
+dim_time (
+    time_id
+    day
+    month
+    year
+    timestamp
+)
+-- %% SQL_RAW | unnamed
+create or replace table fact_ride as
+from 'onsite/uber/fact_ride.csv';
+create or replace table dim_location as
+from 'onsite/uber/dim_location.csv';
+create or replace table ride_rider_bridge as
+from 'onsite/uber/ride_rider_bridge.csv';
+create or replace table dim_vehicle as
+from 'onsite/uber/dim_vehicle.csv';
+create or replace table dim_date as
+from 'onsite/uber/dim_date.csv';
+
+-- calculate the average wait time
+select sum(end_time - start_time) / count(*)
+from fact_ride
+-- %% SQL_RAW | unnamed
+-- how to calcualte how many drivers have spent more than total four hours with passengers
+
+select count(*)
+from (
+    select driver_id
+    from fact_ride
+    group by driver_id
+    having sum(end_time - start_time) / 3600 > 4 
+)
+-- %% SQL_RAW | unnamed
+-- number of riders using uber for airport service
+
+select count(rider_id)
+from fact_ride
+join ride_rider_bridge
+    on ride_rider_bridge.ride_id = fact_ride.ride_id
+join dim_location as start_location
+    on start_location.location_id = fact_ride.start_location_id
+join dim_location as end_location
+    on end_location.location_id = fact_ride.end_location_id
+where start_location.type = 'airport' or end_location.type = 'airport'
+-- %% SQL_RAW | unnamed
+-- count riders who have ONLY used uber to go to and from airport
+
+select count(rider_id)
+from (
+    select
+        rider_id,
+        sum(case when start_location.type = 'airport' or end_location.type = 'airport' then 1 else 0 end) as airport_rides,
+        count(*) rides
+    from fact_ride
+    join ride_rider_bridge
+        on ride_rider_bridge.ride_id = fact_ride.ride_id
+    join dim_location as start_location
+        on start_location.location_id = fact_ride.start_location_id
+    join dim_location as end_location
+        on end_location.location_id = fact_ride.end_location_id
+    group by rider_id
+)
+where rides = airport_rides
+-- %% PYTHON | unnamed
+"""
+bookings = [(start, end, passengers)]
+determine if carpooling is possible within the capacity limit
+
+Can start and end time be the same?
+"""
+
+"""
+booking_events = [(start, +passengers), (end, -passengers)]
+sort booking_events
+loop booking_events keeping track of cur capacity
+and if cur capacity is over capacity then return false
+end return true
+"""
+
+def solution(bookings, capacity=4):
+    time_passengers = {}
+    for booking in bookings:
+        start = booking[0]
+        end = booking[1]
+
+        time_passengers[start] = time_passengers.get(start, 0) + booking[2]
+        time_passengers[end] = time_passengers.get(end, 0) - booking[2]
+
+    times = sorted(time_passengers.keys())
+
+    cur_capacity = 0
+    for time in times:
+        passengers = time_passengers[time]
+        cur_capacity += passengers
+
+        if cur_capacity > capacity:
+            return False
+
+    return True
+
+# Test Case 1: Carpooling is possible (no overlapping trips)
+bookings1 = [(1, 4, 2), (5, 7, 3), (8, 10, 1)]
+assert solution(bookings1, capacity=4) == True
+
+# Test Case 2: Carpooling is not possible (overlapping trips exceed capacity)
+bookings2 = [(1, 4, 2), (2, 5, 3), (3, 6, 2)]
+assert solution(bookings2, capacity=4) == False
+
+# Test Case 3: Carpooling is possible (exact capacity)
+bookings3 = [(1, 4, 2), (2, 5, 2)]
+assert solution(bookings3, capacity=4) == True
+
+# Test Case 4: Carpooling is not possible (single trip exceeds capacity)
+bookings4 = [(1, 4, 5)]
+assert solution(bookings4, capacity=4) == False
+
+# Test Case 5: Carpooling is possible (all trips at the same time but within capacity)
+bookings5 = [(1, 4, 1), (1, 4, 1), (1, 4, 1), (1, 4, 1)]
+assert solution(bookings5, capacity=4) == True
+
+# Test Case 6: Carpooling is not possible (all trips at the same time and exceed capacity)
+bookings6 = [(1, 4, 2), (1, 4, 2), (1, 4, 2)]
+assert solution(bookings6, capacity=4) == False
+
+# Test Case 7: Carpooling is possible (no trips)
+bookings7 = []
+assert solution(bookings7, capacity=4) == True
+
+# Test Case 8: Carpooling is possible (trips with zero passengers)
+bookings8 = [(1, 4, 0), (2, 5, 0)]
+assert solution(bookings8, capacity=4) == True
+
+# Test Case 10: Carpooling is not possible (overlapping trips with varying passenger counts)
+bookings10 = [(1, 4, 2), (2, 5, 3), (3, 6, 1)]
+assert solution(bookings10, capacity=4) == False
+
+# Test Case 11: Carpooling is possible (trips with same start and end time)
+bookings11 = [(1, 1, 2), (1, 1, 2)]
+assert solution(bookings11, capacity=4) == True
+
+#Test Case 12: Carpooling is not possible (trips with same start and end time but exceed capacity)
+# bookings12 = [(1, 1, 3), (1, 1, 2)]
+# assert solution(bookings12, capacity=4) == False
+
+# overlapping finish and start that meet capacity
+assert solution([(1,2,4), (2,3,5)], capacity=4) == False
+
+print("all test cases passed!")
+-- %% TEXT | unnamed
+count sum case problems + sub query
+watch group by
+
+return true false if carpool is possible

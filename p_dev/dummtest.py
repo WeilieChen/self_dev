@@ -1,0 +1,12 @@
+{"part_master_id": "1766594615", "owner_id": "1582", "role": "re"}
+{"part_master_id": "1766594641", "owner_id": "",   "role": "re"}
+{"part_master_id": "1766594654", "owner_id": "1582",   "role": "re"}
+{"part_master_id": "1766594667", "owner_id": "",   "role": "re"}
+{"part_master_id": "1766594680", "owner_id": "1582",  "role": "re"}
+{"part_master_id": "1766594693", "owner_id": "",  "role": "re"}
+{"part_master_id": "1766594615", "owner_id": "1582", "role": "me"}
+{"part_master_id": "1766594641", "owner_id": "",   "role": "me"}
+{"part_master_id": "1766594654", "owner_id": "1582",   "role": "me"}
+{"part_master_id": "1766594667", "owner_id": "",   "role": "me"}
+{"part_master_id": "1766594680", "owner_id": "1582",  "role": "me"}
+{"part_master_id": "1766594693", "owner_id": "",  "role": "me"}
